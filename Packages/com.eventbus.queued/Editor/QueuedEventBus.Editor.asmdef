@@ -1,0 +1,14 @@
+{
+  "name": "QueuedEventBus.Editor",
+  "rootNamespace": "QueuedEventBus.Editor",
+  "references": ["QueuedEventBus.Runtime"],
+  "includePlatforms": ["Editor"],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

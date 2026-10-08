@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+**/Library/
+**/Temp/
+**/Logs/
+**/UserSettings/
+**/TestResults/
+artifacts/
+.vs/

@@ -1,0 +1,16 @@
+name: Validate runtime and generator
+on:
+  push:
+  pull_request:
+jobs:
+  managed-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Runtime correctness and allocation checks
+        run: dotnet run --project Tests/QueuedEventBus.Tests -c Release
+      - name: Generator and analyzer checks
+        run: dotnet run --project Tools/QueuedEventBus.Generator.Tests -c Release

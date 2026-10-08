@@ -1,0 +1,8 @@
+﻿{
+  "name": "QueuedEventBus.Tests.Events",
+  "rootNamespace": "QueuedEventBus.Tests.Fixtures",
+  "references": ["QueuedEventBus.Runtime"],
+  "autoReferenced": false,
+  "optionalUnityReferences": ["TestAssemblies"]
+}
+

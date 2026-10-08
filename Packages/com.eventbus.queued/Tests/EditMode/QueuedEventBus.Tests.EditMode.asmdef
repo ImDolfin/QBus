@@ -1,0 +1,9 @@
+﻿{
+  "name": "QueuedEventBus.Tests.EditMode",
+  "rootNamespace": "QueuedEventBus.Tests.EditMode",
+  "references": ["QueuedEventBus.Runtime", "QueuedEventBus.Tests.Events", "QueuedEventBus.Tests.OtherEvents"],
+  "includePlatforms": ["Editor"],
+  "autoReferenced": false,
+  "optionalUnityReferences": ["TestAssemblies"]
+}
+

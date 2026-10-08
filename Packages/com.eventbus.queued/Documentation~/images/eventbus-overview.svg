@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="884" viewBox="0 0 1120 884" role="img" aria-labelledby="title description">
+  <title id="title">Queued Event Bus: from event declarations to queued delivery</title>
+  <desc id="description">During compilation, the source generator finds concrete events and their categories and emits typed routes registered before Awake. At runtime, Raise stores a payload with a timestamp and per-bus sequence in its concrete type's queue. After Update, the default bus captures all pending queue counts before delivering the starting snapshot. Exact and category subscribers share a subscriber list captured for each event and execute in registration order. Events raised inside handlers remain queued until the next pump. Ordering is FIFO within a concrete type, not global across types.</desc>
+  <defs>
+    <linearGradient id="background" x2="1" y2="1">
+      <stop stop-color="#0d1728"/>
+      <stop offset="1" stop-color="#101d30"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1 1L7 4L1 7" fill="none" stroke="#a4bad1" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text { font-family: 'Segoe UI', Arial, sans-serif; fill: #eef5ff; }
+      .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 1.6px; }
+      .heading { font-size: 19px; font-weight: 650; }
+      .body { font-size: 16px; fill: #b8cadf; }
+      .code { font-family: Consolas, 'Liberation Mono', monospace; font-size: 15px; }
+      .small { font-size: 13px; fill: #b8cadf; }
+      .section { fill: #101e31; stroke: #2b3e57; }
+      .card { fill: #17283e; stroke: #36516c; }
+      .wire { fill: none; stroke: #a4bad1; stroke-width: 2; marker-end: url(#arrow); }
+      .cyan { fill: #75dff5; }
+      .violet { fill: #bfacff; }
+      .green { fill: #7de7c9; }
+      .amber { fill: #ffd08a; }
+    </style>
+  </defs>
+
+  <rect width="1120" height="884" rx="24" fill="url(#background)"/>
+  <text class="eyebrow cyan" x="40" y="35">QUEUED EVENT BUS / UNITY 2022.3+</text>
+  <text x="40" y="78" font-size="34" font-weight="700">Define. Subscribe. Raise.</text>
+  <text class="body" x="40" y="107">Automatic routes, typed queues, and one consistent delivery model.</text>
+  <rect x="874" y="43" width="206" height="47" rx="23" fill="#16382f" stroke="#387963"/>
+  <text class="green" x="977" y="72" font-size="16" font-weight="600" text-anchor="middle">Structs + classes</text>
+
+  <!-- Compilation creates type relationships; payload queues are created later, on demand. -->
+  <rect class="section" x="32" y="134" width="1056" height="166" rx="18"/>
+  <text class="eyebrow cyan" x="52" y="164">01 / COMPILE &amp; INITIALIZE</text>
+
+  <rect class="card" x="52" y="182" width="300" height="96" rx="12"/>
+  <text class="heading" x="70" y="210">Your event declarations</text>
+  <text class="code cyan" x="70" y="237">DamageEvent : ICombatEvent</text>
+  <text class="code" x="70" y="260">ICombatEvent : IEvent</text>
+  <path class="wire" d="M358 230H394"/>
+
+  <rect class="card" x="402" y="182" width="300" height="96" rx="12"/>
+  <text class="heading" x="420" y="210">Source generator</text>
+  <text class="body" x="420" y="237">Finds events and their categories.</text>
+  <text class="body" x="420" y="260">Emits registration for each assembly.</text>
+  <path class="wire" d="M708 230H744"/>
+
+  <rect class="card" x="752" y="182" width="316" height="96" rx="12"/>
+  <text class="heading" x="770" y="210">Generated typed routes</text>
+  <text class="body" x="770" y="237">Registered before Awake.</text>
+  <text class="body" x="770" y="260">Connect events to their subscribers.</text>
+
+  <!-- A concrete queue owns both payload and context. Categories have no separate payload queue. -->
+  <rect class="section" x="32" y="320" width="1056" height="346" rx="18"/>
+  <text class="eyebrow violet" x="52" y="350">02 / RAISE &amp; DELIVER</text>
+  <text class="small" x="1068" y="350" text-anchor="end">Default bus: after Update / Owned bus: explicit Pump()</text>
+
+  <rect class="card" x="52" y="376" width="270" height="136" rx="12"/>
+  <text class="heading" x="70" y="405">Raise an event</text>
+  <text class="code violet" x="70" y="431">Events.Raise(in message)</text>
+  <text class="body" x="70" y="460">Store the payload + EventContext.</text>
+  <text class="body" x="70" y="485">Timestamp + per-bus sequence.</text>
+  <path class="wire" d="M328 444H364"/>
+
+  <rect class="card" x="372" y="376" width="300" height="136" rx="12"/>
+  <text class="heading" x="390" y="405">Automatic typed queues</text>
+  <text class="small" x="390" y="428">One retained queue per concrete type</text>
+  <text class="code" x="390" y="458">Damage</text>
+  <rect x="484" y="439" width="63" height="27" rx="6" fill="#383259"/>
+  <text class="code violet" x="515" y="458" text-anchor="middle">#1</text>
+  <rect x="557" y="439" width="63" height="27" rx="6" fill="#383259"/>
+  <text class="code violet" x="588" y="458" text-anchor="middle">#3</text>
+  <text class="code" x="390" y="493">Heal</text>
+  <rect x="484" y="474" width="63" height="27" rx="6" fill="#193f47"/>
+  <text class="code cyan" x="515" y="493" text-anchor="middle">#2</text>
+  <path class="wire" d="M678 444H714"/>
+
+  <rect class="card" x="722" y="376" width="346" height="136" rx="12"/>
+  <text class="heading" x="740" y="405">Pump the starting snapshot</text>
+  <text class="body" x="740" y="431">Capture ALL active queue counts first.</text>
+  <text class="body" x="740" y="460">Then drain queues in activation order.</text>
+  <text class="green" x="740" y="485" font-size="16">Here: Damage #1, Damage #3, Heal #2</text>
+  <path class="wire" d="M895 512V540"/>
+  <text class="small" x="909" y="533">for each event</text>
+
+  <rect class="card" x="52" y="548" width="270" height="94" rx="12"/>
+  <text class="heading" x="70" y="577">Register subscribers</text>
+  <text class="code violet" x="70" y="603">Events.Subscribe&lt;T&gt;(...)</text>
+  <text class="small" x="70" y="624">Dispose the token to unsubscribe.</text>
+  <path class="wire" d="M328 594H364"/>
+
+  <rect x="372" y="548" width="696" height="94" rx="12" fill="#142e30" stroke="#3d776b"/>
+  <text class="heading green" x="390" y="577">Exact + matching category callbacks</text>
+  <text class="body" x="390" y="603">Capture subscribers per event; invoke them in subscription order.</text>
+  <text class="body" x="390" y="626">Same context for every listener. Concrete payload types stay intact.</text>
+
+  <!-- This band describes reentrant publication without drawing a misleading same-pump loop. -->
+  <rect x="32" y="686" width="1056" height="148" rx="18" fill="#282337" stroke="#615075"/>
+  <text class="eyebrow amber" x="52" y="716">03 / EVENTS RAISED INSIDE HANDLERS</text>
+  <text class="heading" x="52" y="753">A handler calls Raise(...)</text>
+  <text class="body" x="52" y="780">The new publication remains queued.</text>
+  <text class="small" x="52" y="805">Captured queue counts stay unchanged.</text>
+  <path class="wire" d="M420 773H488"/>
+
+  <rect x="502" y="739" width="566" height="74" rx="12" fill="#352c43" stroke="#806581"/>
+  <text class="heading amber" x="522" y="768">Delivered in the NEXT pump</text>
+  <text class="body" x="522" y="794">Next frame on Events; next Pump() on an owned bus.</text>
+
+  <text class="body" x="560" y="863" text-anchor="middle">FIFO within each concrete type  /  No global ordering across types  /  Main-thread use</text>
+</svg>

@@ -1,0 +1,8 @@
+﻿{
+  "name": "QueuedEventBus.Tests.PlayMode",
+  "rootNamespace": "QueuedEventBus.Tests.PlayMode",
+  "references": ["QueuedEventBus.Runtime", "QueuedEventBus.Tests.Events", "QueuedEventBus.Tests.OtherEvents"],
+  "autoReferenced": false,
+  "optionalUnityReferences": ["TestAssemblies"]
+}
+

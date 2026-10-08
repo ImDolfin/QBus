@@ -1,0 +1,15 @@
+{
+  "name": "com.eventbus.queued",
+  "version": "0.1.0",
+  "displayName": "Queued Event Bus",
+  "description": "A generic, queued event bus with automatic typed channels, generated category routing, and automatic Unity delivery.",
+  "unity": "2022.3",
+  "keywords": ["event", "message", "queue", "generic", "eventbus"],
+  "samples": [
+    {
+      "displayName": "Basic Events",
+      "description": "Immutable events, exact and category subscriptions, and MonoBehaviour subscription ownership.",
+      "path": "Samples~/BasicEvents"
+    }
+  ]
+}
