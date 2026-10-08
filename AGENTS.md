@@ -56,6 +56,9 @@ These are observable behavior and performance constraints, not incidental implem
 7. **Subscription identity:** exact and category callbacks, with and without context, share registration order. Separate registrations mean separate deliveries. Copied/default/disposed tokens must remain idempotent.
 8. **Resilience and lifetimes:** contain each listener exception and reporter failure, then continue. Reject recursive pumping and bus disposal during dispatch. Clear dequeued entries and release queues/subscriptions on disposal. Callback-induced queue growth must not invalidate the current payload or context references.
 9. **Warm-path allocations:** publication and delivery must allocate no bus memory after capacity and subscriptions are prepared, including struct delivery through category handlers. Preserve constrained generic calls; avoid payload boxing, reflection invocation, per-event closures, temporary collections, and type-dictionary lookups on these paths. Initialization, growth, subscription changes, reporting, and application allocations are outside this guarantee.
+
+   Preserve value-type scheduler entries: storing derived channels directly in a base-reference array can grow CoreCLR's shared cast cache and allocate after bus warmup. Allocation checks must also verify delivery counts so a stopped event chain cannot produce a false pass.
+
 10. **Unity lifecycle:** reset session state at `SubsystemRegistration`; register generated metadata at `AfterAssembliesLoaded`; establish readiness at `BeforeSplashScreen`; install the bus at `BeforeSceneLoad`. Keep one callback immediately after `Update.ScriptRunBehaviourUpdate`, preserve other systems, and remove it during teardown. Recreate mutable bus state each Play session while safely retaining immutable routing metadata when domain reload is disabled.
 
 ## Code and documentation style

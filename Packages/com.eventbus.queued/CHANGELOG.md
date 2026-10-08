@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Avoid CoreCLR cast-cache allocations during warmed scheduling by storing channel references in value-type scheduler entries.
 - Add a shared README architecture visual and a frame-by-frame example of queued delivery.
 - Capture immutable raise-time timestamps and per-bus publication sequences in `EventContext` for every queued event.
 - Add optional context callbacks and generic category handlers while preserving payload-only subscriptions.

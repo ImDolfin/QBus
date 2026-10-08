@@ -16,6 +16,16 @@ namespace QueuedEventBus
     /// </remarks>
     public sealed class EventBus : IDisposable
     {
+        private readonly struct ScheduledChannel
+        {
+            internal readonly ChannelBase Channel;
+
+            internal ScheduledChannel(ChannelBase channel)
+            {
+                Channel = channel;
+            }
+        }
+
         private readonly int _ownerThread = Thread.CurrentThread.ManagedThreadId;
         private readonly List<ChannelBase> _createdChannels = new List<ChannelBase>(16);
 
@@ -25,8 +35,10 @@ namespace QueuedEventBus
         private CategoryBucketBase[] _categories = new CategoryBucketBase[16];
 
         // Swapping retained lists separates eligible work from publications made by callbacks.
-        private List<ChannelBase> _incoming = new List<ChannelBase>(16);
-        private List<ChannelBase> _work = new List<ChannelBase>(16);
+        // A value-type entry avoids reference-array covariance checks on List.Add. Those checks
+        // can grow CoreCLR's shared cast cache and allocate even after this bus is warmed.
+        private List<ScheduledChannel> _incoming = new List<ScheduledChannel>(16);
+        private List<ScheduledChannel> _work = new List<ScheduledChannel>(16);
         private long _nextSubscription;
         private long _nextSequence;
         private bool _pumping;
@@ -466,7 +478,7 @@ namespace QueuedEventBus
             // is visited would incorrectly admit events raised by an earlier channel.
             for (int i = 0; i < _work.Count; i++)
             {
-                var channel = _work[i];
+                var channel = _work[i].Channel;
                 channel.EligibleCount = channel.Count;
                 channel.Scheduled = false;
             }
@@ -478,7 +490,7 @@ namespace QueuedEventBus
 
             for (int i = 0; i < _work.Count; i++)
             {
-                delivered += _work[i].Drain(this);
+                delivered += _work[i].Channel.Drain(this);
             }
 
             return delivered;
@@ -490,7 +502,7 @@ namespace QueuedEventBus
             // also deduplicates channels already activated by a handler during this pass.
             for (int i = 0; i < _work.Count; i++)
             {
-                var channel = _work[i];
+                var channel = _work[i].Channel;
 
                 if (channel.Count != 0)
                 {
@@ -511,7 +523,7 @@ namespace QueuedEventBus
                 return;
             }
 
-            _incoming.Add(channel);
+            _incoming.Add(new ScheduledChannel(channel));
             channel.Scheduled = true;
         }
 

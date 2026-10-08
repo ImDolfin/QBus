@@ -622,12 +622,27 @@ namespace QueuedEventBus.Tests
 
         private static void ReentrantZeroAllocations()
         {
-            using (var bus = new EventBus())
+            int reportedExceptions = 0;
+            int numberDeliveries = 0;
+            int otherDeliveries = 0;
+
+            using (var bus = new EventBus(error =>
+            {
+                reportedExceptions++;
+            }))
             {
                 bus.Prewarm<Number>(2);
                 bus.Prewarm<OtherNumber>(2);
-                bus.Subscribe<Number>((in Number item) => bus.Raise(new OtherNumber(item.Value)));
-                bus.Subscribe<OtherNumber>((in OtherNumber item) => bus.Raise(new Number(item.Value)));
+                var numberToken = bus.Subscribe<Number>((in Number item) =>
+                {
+                    numberDeliveries++;
+                    bus.Raise(new OtherNumber(item.Value));
+                });
+                var otherToken = bus.Subscribe<OtherNumber>((in OtherNumber item) =>
+                {
+                    otherDeliveries++;
+                    bus.Raise(new Number(item.Value));
+                });
 
                 bus.Raise(new Number(1));
                 for (var i = 0; i < 100; i++)
@@ -635,16 +650,48 @@ namespace QueuedEventBus.Tests
                     bus.Pump();
                 }
 
-                // Warmup above includes queue allocation and generic callback initialization.
-                // Keep assertions and diagnostic formatting outside the measured interval.
-                var before = GC.GetAllocatedBytesForCurrentThread();
-                for (var i = 0; i < 10000; i++)
-                {
-                    bus.Pump();
-                }
+                Equal(50, numberDeliveries);
+                Equal(50, otherDeliveries);
+                Equal(0, reportedExceptions);
 
-                Equal(0L, GC.GetAllocatedBytesForCurrentThread() - before);
+                AssertReentrantPumpAllocations(bus);
+                Equal(5050, numberDeliveries);
+                Equal(5050, otherDeliveries);
+                Equal(0, reportedExceptions);
+
+                // Removing both producers leaves exactly one queued event, then an empty bus.
+                numberToken.Dispose();
+                otherToken.Dispose();
+                Equal(1, bus.Pump());
+                Equal(0, bus.Pump());
+                Equal(5050, numberDeliveries);
+                Equal(5050, otherDeliveries);
+                Equal(0, reportedExceptions);
             }
+        }
+
+        private static void AssertReentrantPumpAllocations(EventBus bus)
+        {
+            int delivered = 0;
+            int unexpectedPumpCounts = 0;
+
+            // Count real work so a stopped chain cannot pass by measuring empty pumps.
+            // Assertions and diagnostic formatting remain outside the measured interval.
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            for (var i = 0; i < 10000; i++)
+            {
+                int count = bus.Pump();
+                delivered += count;
+                if (count != 1)
+                {
+                    unexpectedPumpCounts++;
+                }
+            }
+
+            long allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            Equal(0L, allocated);
+            Equal(10000, delivered);
+            Equal(0, unexpectedPumpCounts);
         }
 
         internal static void Equal<T>(T expected, T actual)
