@@ -13,10 +13,11 @@ namespace QueuedEventBus
     /// <see cref="EventBus"/> for EditMode tools or manual delivery.
     /// </para>
     /// <para>
-    /// Delivery runs immediately after Unity's <c>Update.ScriptRunBehaviourUpdate</c> system.
+    /// Queued delivery runs immediately after Unity's <c>Update.ScriptRunBehaviourUpdate</c> system.
     /// Each pass captures all pending channel counts before invoking any listener. Events
-    /// raised during delivery wait for the next pass. Events retain FIFO order within their
-    /// concrete channel; there is no global ordering guarantee across channels.
+    /// enqueued during delivery wait for the next pass. Queued events retain FIFO order within
+    /// their concrete channel; there is no global ordering guarantee across channels.
+    /// <see cref="RaiseImmediate{T}(in T)"/> delivers synchronously and can overtake queued events.
     /// </para>
     /// <para>
     /// Subscribers run in registration order. Each event captures its listeners at delivery
@@ -33,7 +34,7 @@ namespace QueuedEventBus
     {
         private static EventBus _bus;
         private static bool _metadataReady;
-        private static bool _pumping;
+        private static int _dispatchDepth;
         private static bool _shutdownRequested;
 
         #region Public API
@@ -70,7 +71,7 @@ namespace QueuedEventBus
         /// <typeparam name="T">The exact concrete event type with registered generated metadata.</typeparam>
         /// <param name="message">The event payload to copy into its typed queue.</param>
         /// <remarks>
-        /// Call on the Unity main thread. Events raised by a listener wait until the next pass.
+        /// Call on the Unity main thread. Calls to this method from a listener wait until the next pass.
         /// Class payloads are queued by reference; keep their data stable until delivery.
         /// Each accepted publication receives an immutable <see cref="EventContext"/> with
         /// its raise timestamp and a sequence number from this Play session's bus.
@@ -93,6 +94,46 @@ namespace QueuedEventBus
         public static void Raise<T>(in T message) where T : IEvent
         {
             DefaultBus.Raise(in message);
+        }
+
+        /// <summary>
+        /// Delivers a concrete event synchronously before returning to its publisher.
+        /// </summary>
+        /// <typeparam name="T">The exact concrete event type with registered generated metadata.</typeparam>
+        /// <param name="message">The payload delivered to the current matching subscribers.</param>
+        /// <remarks>
+        /// Call on the Unity main thread. Exact and category subscribers share one callback
+        /// snapshot in registration order. Metadata uses the same raise-time clock and
+        /// publication sequence as queued events. Pending queues are not drained or reordered,
+        /// so immediate delivery can overtake an earlier queued event of the same type.
+        /// Nested immediate events finish before the enclosing listener resumes; at most 64
+        /// immediate publications may be active at once. Ordinary <see cref="Raise{T}(in T)"/>
+        /// calls still enqueue for a subsequent delivery pass. Listener exceptions are reported
+        /// and delivery continues. Requested Unity teardown waits for the outermost dispatch.
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">
+        /// The default bus is not ready, is shutting down, the caller is not its owner thread,
+        /// generated metadata is unavailable, or the immediate nesting limit is reached.
+        /// </exception>
+        /// <exception cref="ArgumentNullException"><paramref name="message"/> is a null class event.</exception>
+        /// <exception cref="ArgumentException">
+        /// The class payload's runtime type differs from <typeparamref name="T"/>.
+        /// </exception>
+        /// <exception cref="OverflowException">The publication sequence is exhausted.</exception>
+        public static void RaiseImmediate<T>(in T message) where T : IEvent
+        {
+            var bus = DefaultBus;
+            bus.CheckAccess();
+            _dispatchDepth++;
+
+            try
+            {
+                bus.RaiseImmediate(in message);
+            }
+            finally
+            {
+                CompleteDispatch();
+            }
         }
 
         /// <summary>
@@ -241,7 +282,6 @@ namespace QueuedEventBus
         {
             Shutdown();
             _metadataReady = false;
-            _shutdownRequested = false;
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSplashScreen)]
@@ -291,20 +331,33 @@ namespace QueuedEventBus
                 return;
             }
 
-            _pumping = true;
+            var bus = DefaultBus;
+            bus.CheckAccess();
+
+            if (_dispatchDepth != 0)
+            {
+                throw new InvalidOperationException("Recursive default-bus pumping is not supported.");
+            }
+
+            _dispatchDepth++;
 
             try
             {
-                _bus.Pump();
+                bus.Pump();
             }
             finally
             {
-                _pumping = false;
+                CompleteDispatch();
+            }
+        }
 
-                if (_shutdownRequested)
-                {
-                    Shutdown();
-                }
+        private static void CompleteDispatch()
+        {
+            _dispatchDepth--;
+
+            if (_dispatchDepth == 0 && _shutdownRequested)
+            {
+                Shutdown();
             }
         }
 
@@ -312,10 +365,11 @@ namespace QueuedEventBus
         {
             _metadataReady = false;
 
-            if (_pumping)
+            if (_dispatchDepth != 0)
             {
                 // Editor stop or an application exit can be requested by a listener.
-                // Defer disposal until Pump has released its captured dispatch state.
+                // Nested immediate dispatch shares this lifetime with a containing pump.
+                // Dispose only after every active dispatch releases its callback snapshot.
                 _shutdownRequested = true;
                 return;
             }

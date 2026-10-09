@@ -13,6 +13,42 @@ namespace QueuedEventBus.Tests.EditMode
     public sealed class EventBusTests
     {
         /// <summary>
+        /// Verifies editor registration routes immediate structs and classes across assembly boundaries.
+        /// </summary>
+        [Test]
+        public void ImmediateRoutingUsesGeneratedCrossAssemblyMetadata()
+        {
+            using (var bus = new EventBus())
+            {
+                var activity = new Recorder<IActivity>();
+                var classes = new Recorder<ActivityBase>();
+                var contexts = new List<EventContext>();
+                bus.Subscribe<IActivity>(activity);
+                bus.Subscribe<ActivityBase>(classes);
+                bus.Subscribe<SecondaryEvent>((in SecondaryEvent message, in EventContext context) =>
+                {
+                    contexts.Add(context);
+                });
+
+                bus.RaiseImmediate(new ActivityEvent(1));
+                bus.RaiseImmediate(new SecondaryEvent(2));
+                bus.RaiseImmediate(new CrossAssemblyDerived());
+                bus.RaiseImmediate(new NestedFixture.Event());
+                bus.RaiseImmediate(new InternalEvent());
+
+                Assert.That(activity.Types, Is.EqualTo(new[]
+                {
+                    typeof(ActivityEvent), typeof(SecondaryEvent), typeof(CrossAssemblyDerived),
+                    typeof(NestedFixture.Event), typeof(InternalEvent)
+                }));
+                Assert.That(classes.Types, Is.EqualTo(new[] { typeof(CrossAssemblyDerived) }));
+                Assert.That(contexts.Count, Is.EqualTo(1));
+                Assert.That(contexts[0].Sequence, Is.EqualTo(2));
+                Assert.That(bus.Pump(), Is.Zero);
+            }
+        }
+
+        /// <summary>
         /// Verifies cross-assembly and nested event registration, including deduplicated diamond categories.
         /// </summary>
         [Test]

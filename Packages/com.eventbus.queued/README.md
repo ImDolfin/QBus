@@ -1,8 +1,8 @@
 # Queued Event Bus
 
-A Unity 2022.3+ package for typed, queued notifications. Declare events implementing `IEvent`, subscribe, and raise. The bus creates concrete queues automatically; a bundled source generator connects events to their base classes and interfaces.
+A Unity 2022.3+ package for typed notifications with queued and explicit immediate delivery. Declare events implementing `IEvent`, subscribe, and raise. The bus creates concrete queues automatically; a bundled source generator connects events to their base classes and interfaces.
 
-![Queued Event Bus overview: compile-time event discovery generates typed routes; Raise captures each payload with its context into a concrete queue; the pump delivers its starting snapshot to exact and category subscribers and defers callback-raised events.](Documentation~/images/eventbus-overview.svg)
+![Queued Event Bus overview: generated routes connect concrete events to exact and category subscribers. Raise queues the payload and context for a pump; RaiseImmediate delivers synchronously. Handler calls to Raise wait for the next pump.](Documentation~/images/eventbus-overview.svg)
 
 ## Quick start
 
@@ -51,7 +51,9 @@ public sealed class HealthEventsExample : MonoBehaviour
 }
 ```
 
-The default bus delivers after `MonoBehaviour.Update`. Events raised while it delivers wait until the next frame. Order is FIFO within each concrete event type. Separate event types have separate queues, so there is no global delivery order.
+The default bus delivers queued events after `MonoBehaviour.Update`. Calls to `Raise` while it delivers wait until the next frame. Queued order is FIFO within each concrete event type. Separate event types have separate queues, so there is no global delivery order.
+
+For synchronous notification, use the same subscriptions with `Events.RaiseImmediate(new DamageEvent(10))`. All captured listeners run before the call returns. Immediate events can overtake queued events of the same type; queues remain untouched. An owned bus also provides `bus.RaiseImmediate(in message)`.
 
 Use `new EventBus()` and call `Pump()` explicitly for isolated systems or EditMode tests. The default facade is for Play mode; initialization completes before scene `Awake` calls. All bus operations belong on the bus's owning thread; use the Unity main thread for `Events`.
 
@@ -63,6 +65,8 @@ Use `new EventBus()` and call `Pump()` explicitly for isolated systems or EditMo
 
 **At pump time**, the bus captures the pending count of every active queue before invoking any handler, then drains those counts completely. Channels run in activation order and each channel preserves FIFO. Exact and matching category subscriptions share one callback list ordered by registration; a category reached through multiple inheritance paths still matches only once per subscription.
 
+**During `RaiseImmediate`**, the bus snapshots the payload into a typed local, captures context, and invokes those same exact and category subscribers directly. It bypasses enqueueing and scheduling, with no payload boxing. A nested immediate call finishes before the invoking listener resumes; at most 64 immediate publications can be active per bus. Calls to ordinary `Raise` from those listeners stay queued. Pumping or disposing the bus during callbacks is rejected. See [immediate delivery](Documentation~/guide.md#immediate-delivery) for a nested ordering example and failure behavior.
+
 ### A frame in practice
 
 Assume empty queues, with `DamageEvent` and `HealEvent` both implementing `ICombatEvent`. The `#` values are `EventContext.Sequence` values on one bus.
@@ -73,7 +77,7 @@ Assume empty queues, with `DamageEvent` and `HealEvent` both implementing `IComb
 | Frame N: pump begins | Capture **both** queue counts before callbacks. | This pump will drain two Damage events and one Heal event. |
 | Frame N: first delivery | Deliver `Damage #1`; one callback raises `Heal #4`. | `Heal #4` is queued with its own context, but is outside this pump's captured counts. |
 | Frame N: remaining deliveries | Deliver `Damage #3`, then `Heal #2`. | Every event invokes its matching exact and category subscribers in registration order. |
-| Frame N+1: next pump | Deliver the pending `Heal #4`. | Handler-raised events always wait for the next pump, including events targeting a queue not yet drained. |
+| Frame N+1: next pump | Deliver the pending `Heal #4`. | Handler calls to `Raise` always wait for the next pump, including events targeting a queue not yet drained. |
 
 The resulting order is **`Damage #1` → `Damage #3` → `Heal #2`**, then `Heal #4` on the next pump. Publication sequence identifies when events were raised; it does not impose a global delivery order. On a custom bus, the boundary is your next explicit `Pump()` call instead of the next Unity frame.
 
@@ -119,16 +123,16 @@ Subscribe from `OnEnable` with `Events.Subscribe<ICombatEvent>(new CombatHandler
 
 ## Publication metadata
 
-Every `Raise` captures an immutable `EventContext` beside the payload. Opt into it by adding a context parameter to an exact callback:
+Every `Raise` and `RaiseImmediate` captures an immutable `EventContext` beside the payload. Both modes share the per-bus sequence. Opt into metadata by adding a context parameter to an exact callback:
 
 ```csharp
 static void OnDamage(in DamageEvent message, in EventContext context)
 {
     long elapsedTicks = System.Diagnostics.Stopwatch.GetTimestamp() - context.RaisedTimestamp;
-    double queuedSeconds = elapsedTicks / (double)EventContext.TimestampFrequency;
+    double elapsedSeconds = elapsedTicks / (double)EventContext.TimestampFrequency;
 
     // context.Sequence identifies this publication within its bus lifetime.
-    // Read message.Amount and queuedSeconds here.
+    // Read message.Amount and elapsedSeconds here.
 }
 ```
 
@@ -140,7 +144,7 @@ Raising the same class instance twice gives each publication independent metadat
 
 ## Performance contract
 
-Typed queues and generated constrained adapters avoid event boxing. Warmed publication and delivery are designed to allocate zero bus memory when queue and scheduler capacities are sufficient. Use `Prewarm<T>(capacity)` before a burst and establish subscriptions before measuring.
+Typed queues and generated constrained adapters avoid event boxing. Warmed queued and immediate publication and delivery are designed to allocate zero bus memory when queue and scheduler capacities are sufficient. Use `Prewarm<T>(capacity)` before a burst and establish subscriptions before measuring. For immediate-only use, `Prewarm<T>(0)` prepares the channel and routes; initial channel storage still includes the minimum 16-slot queue.
 
 Publication metadata contains two 64-bit values: 16 bytes of data per retained queue slot, with possible additional payload alignment padding. Each raise reads the timestamp clock. Metadata uses value storage and adds no per-publication managed allocation; measure its throughput and memory cost on the target platform.
 

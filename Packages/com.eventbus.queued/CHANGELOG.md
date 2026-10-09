@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add synchronous `RaiseImmediate` on owned buses and the Unity facade, reusing exact/category routes and publication metadata with bounded nested delivery.
+- Preserve queued pump snapshots during immediate callbacks; guard dispatch lifetime, defer Unity teardown, and diagnose erased immediate publication types.
 - Avoid CoreCLR cast-cache allocations during warmed scheduling by storing channel references in value-type scheduler entries.
 - Add a shared README architecture visual and a frame-by-frame example of queued delivery.
 - Capture immutable raise-time timestamps and per-bus publication sequences in `EventContext` for every queued event.

@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="884" viewBox="0 0 1120 884" role="img" aria-labelledby="title description">
-  <title id="title">Queued Event Bus: from event declarations to queued delivery</title>
-  <desc id="description">During compilation, the source generator finds concrete events and their categories and emits typed routes registered before Awake. At runtime, Raise stores a payload with a timestamp and per-bus sequence in its concrete type's queue. After Update, the default bus captures all pending queue counts before delivering the starting snapshot. Exact and category subscribers share a subscriber list captured for each event and execute in registration order. Events raised inside handlers remain queued until the next pump. Ordering is FIFO within a concrete type, not global across types.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="1060" viewBox="0 0 1120 1060" role="img" aria-labelledby="title description">
+  <title id="title">Queued Event Bus: generated routes, queued and immediate delivery</title>
+  <desc id="description">During compilation, the source generator emits typed routes registered before Awake. Raise queues a payload with a timestamp and per-bus sequence. After Update, the default bus captures all pending queue counts before delivering that snapshot. RaiseImmediate bypasses queues and invokes the same subscribers synchronously, sharing the per-bus sequence. It can overtake queued events and supports up to 64 nested immediate publications per bus. Each event captures exact and category subscribers in registration order. Handler calls to Raise remain queued until the next pump. FIFO applies among queued events of a concrete type.</desc>
   <defs>
     <linearGradient id="background" x2="1" y2="1">
       <stop stop-color="#0d1728"/>
@@ -26,10 +26,10 @@
     </style>
   </defs>
 
-  <rect width="1120" height="884" rx="24" fill="url(#background)"/>
+  <rect width="1120" height="1060" rx="24" fill="url(#background)"/>
   <text class="eyebrow cyan" x="40" y="35">QUEUED EVENT BUS / UNITY 2022.3+</text>
   <text x="40" y="78" font-size="34" font-weight="700">Define. Subscribe. Raise.</text>
-  <text class="body" x="40" y="107">Automatic routes, typed queues, and one consistent delivery model.</text>
+  <text class="body" x="40" y="107">Automatic routes. Shared subscriptions. Choose queued or immediate delivery.</text>
   <rect x="874" y="43" width="206" height="47" rx="23" fill="#16382f" stroke="#387963"/>
   <text class="green" x="977" y="72" font-size="16" font-weight="600" text-anchor="middle">Structs + classes</text>
 
@@ -56,7 +56,7 @@
 
   <!-- A concrete queue owns both payload and context. Categories have no separate payload queue. -->
   <rect class="section" x="32" y="320" width="1056" height="346" rx="18"/>
-  <text class="eyebrow violet" x="52" y="350">02 / RAISE &amp; DELIVER</text>
+  <text class="eyebrow violet" x="52" y="350">02 / QUEUED DELIVERY</text>
   <text class="small" x="1068" y="350" text-anchor="end">Default bus: after Update / Owned bus: explicit Pump()</text>
 
   <rect class="card" x="52" y="376" width="270" height="136" rx="12"/>
@@ -98,17 +98,29 @@
   <text class="body" x="390" y="603">Capture subscribers per event; invoke them in subscription order.</text>
   <text class="body" x="390" y="626">Same context for every listener. Concrete payload types stay intact.</text>
 
-  <!-- This band describes reentrant publication without drawing a misleading same-pump loop. -->
-  <rect x="32" y="686" width="1056" height="148" rx="18" fill="#282337" stroke="#615075"/>
-  <text class="eyebrow amber" x="52" y="716">03 / EVENTS RAISED INSIDE HANDLERS</text>
-  <text class="heading" x="52" y="753">A handler calls Raise(...)</text>
-  <text class="body" x="52" y="780">The new publication remains queued.</text>
-  <text class="small" x="52" y="805">Captured queue counts stay unchanged.</text>
-  <path class="wire" d="M420 773H488"/>
+  <!-- Immediate publication reaches the same delivery path without draining or changing queues. -->
+  <rect x="32" y="686" width="1056" height="156" rx="18" fill="#142b32" stroke="#3a7177"/>
+  <text class="eyebrow cyan" x="52" y="716">03 / IMMEDIATE DELIVERY</text>
+  <text class="code cyan" x="52" y="749">Events.RaiseImmediate(in message)</text>
+  <text class="body" x="52" y="776">Capture payload + context.</text>
+  <text class="small" x="52" y="804">Shared sequence. Pending queues untouched.</text>
+  <path class="wire" d="M426 767H488"/>
+  <rect x="502" y="734" width="566" height="88" rx="12" fill="#183c40" stroke="#3d776b"/>
+  <text class="heading green" x="522" y="761">Same subscribers, before the call returns</text>
+  <text class="body" x="522" y="786">Can overtake queued events of the same type.</text>
+  <text class="small" x="522" y="808">Nested immediate calls run first; limit: 64 active calls per bus.</text>
 
-  <rect x="502" y="739" width="566" height="74" rx="12" fill="#352c43" stroke="#806581"/>
-  <text class="heading amber" x="522" y="768">Delivered in the NEXT pump</text>
-  <text class="body" x="522" y="794">Next frame on Events; next Pump() on an owned bus.</text>
+  <!-- Handler calls to Raise still respect the pump boundary, even inside immediate delivery. -->
+  <rect x="32" y="862" width="1056" height="148" rx="18" fill="#282337" stroke="#615075"/>
+  <text class="eyebrow amber" x="52" y="892">04 / QUEUING FROM ANY HANDLER</text>
+  <text class="heading" x="52" y="929">A handler calls Raise(...)</text>
+  <text class="body" x="52" y="956">The new publication remains queued.</text>
+  <text class="small" x="52" y="981">Captured queue counts stay unchanged.</text>
+  <path class="wire" d="M420 949H488"/>
 
-  <text class="body" x="560" y="863" text-anchor="middle">FIFO within each concrete type  /  No global ordering across types  /  Main-thread use</text>
+  <rect x="502" y="915" width="566" height="74" rx="12" fill="#352c43" stroke="#806581"/>
+  <text class="heading amber" x="522" y="944">Delivered in the NEXT pump</text>
+  <text class="body" x="522" y="970">Next automatic pass on Events; next Pump() if owned.</text>
+
+  <text class="body" x="560" y="1039" text-anchor="middle">FIFO among queued events of one type  /  No global ordering  /  Main-thread use</text>
 </svg>

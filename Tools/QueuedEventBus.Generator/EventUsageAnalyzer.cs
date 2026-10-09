@@ -23,7 +23,7 @@ namespace QueuedEventBus.Generator
 
         private static readonly DiagnosticDescriptor ErasedPublication = new DiagnosticDescriptor(
             "QEB003", "Publication erases the concrete event type",
-            "Raise<{0}> receives '{1}'; publish using the concrete event type so generated routing stays correct",
+            "{0}<{1}> receives '{2}'; publish using the concrete event type so generated routing stays correct",
             "QueuedEventBus", DiagnosticSeverity.Error, true);
 
         /// <summary>
@@ -84,7 +84,7 @@ namespace QueuedEventBus.Generator
                 return false;
             }
 
-            if (method.Name == "Raise" || method.Name == "Prewarm")
+            if (IsPublication(method) || method.Name == "Prewarm")
             {
                 return true;
             }
@@ -101,7 +101,7 @@ namespace QueuedEventBus.Generator
             IMethodSymbol method,
             ITypeSymbol publishedType)
         {
-            if (method.Name != "Raise" || invocation.ArgumentList.Arguments.Count != 1)
+            if (!IsPublication(method) || invocation.ArgumentList.Arguments.Count != 1)
             {
                 return;
             }
@@ -114,8 +114,14 @@ namespace QueuedEventBus.Generator
                 context.Compilation.ClassifyConversion(actualType, publishedType).IsImplicit)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
-                    ErasedPublication, invocation.GetLocation(), publishedType.ToDisplayString(), actualType.ToDisplayString()));
+                    ErasedPublication, invocation.GetLocation(), method.Name,
+                    publishedType.ToDisplayString(), actualType.ToDisplayString()));
             }
+        }
+
+        private static bool IsPublication(IMethodSymbol method)
+        {
+            return method.Name == "Raise" || method.Name == "RaiseImmediate";
         }
 
         private static ExpressionSyntax UnwrapPublicationArgument(ExpressionSyntax argument)

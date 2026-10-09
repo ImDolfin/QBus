@@ -29,6 +29,7 @@ internal static class Program
             ("Unsupported declarations have actionable diagnostics", UnsupportedDeclarations),
             ("Inaccessible category routes have actionable diagnostics", InaccessibleCategories),
             ("Erased publications and invalid exact subscriptions are diagnosed", UsageDiagnostics),
+            ("Immediate publications retain concrete-type and erasure diagnostics", ImmediateUsageDiagnostics),
             ("Category subscriptions and generic forwarding are accepted", ValidUsage),
             ("Metadata exact subscriptions reject erased event types", ContextUsageDiagnostics),
             ("Metadata category subscriptions and generic forwarding are accepted", ValidContextUsage),
@@ -37,7 +38,7 @@ internal static class Program
             ("Partial declarations generate one registration", PartialDeclaration),
             ("256 event declarations generate valid output", ManyEvents),
             ("Generated registration executes against the actual runtime", RuntimeIntegration),
-            ("Generated metadata delivery works across separate assemblies", CrossAssemblyContextIntegration),
+            ("Generated queued and immediate metadata delivery works across separate assemblies", CrossAssemblyContextIntegration),
             ("Source without runtime reference produces no output", NoRuntime)
         };
 
@@ -192,6 +193,17 @@ internal static class Program
         Assert(diagnostics.Length == 0, string.Join("\n", diagnostics));
     }
 
+    private static void ImmediateUsageDiagnostics()
+    {
+        var diagnostics = Analyze(ImmediateFixtures.InvalidUsage);
+        Assert(diagnostics.Count(diagnostic => diagnostic.Id == "QEB002") == 4,
+            "Expected four immediate concrete-type diagnostics: " + string.Join("\n", diagnostics));
+        Assert(diagnostics.Count(diagnostic => diagnostic.Id == "QEB003") == 4,
+            "Expected four immediate erased-publication diagnostics: " + string.Join("\n", diagnostics));
+        Assert(diagnostics.All(diagnostic => diagnostic.GetMessage().Contains("RaiseImmediate")),
+            "Immediate diagnostics must name the immediate API");
+    }
+
     private static void ContextUsageDiagnostics()
     {
         var diagnostics = Analyze(MetadataFixtures.InvalidUsage);
@@ -335,10 +347,11 @@ internal static class Program
         var eventsAssembly = LoadImage(eventsImage);
         InvokeRegistration(eventsAssembly);
 
-        var consumer = Compile(MetadataFixtures.Consumer, "MetadataConsumerIntegration", false,
+        var consumer = Compile(MetadataFixtures.Consumer + "\n" + ImmediateFixtures.Consumer, "MetadataConsumerIntegration", false,
             core, sharedReference, eventsReference);
         var consumerAssembly = EmitAndLoad(consumer);
         consumerAssembly.GetType("MetadataIntegration")!.GetMethod("Run")!.Invoke(null, null);
+        consumerAssembly.GetType("ImmediateIntegration")!.GetMethod("Run")!.Invoke(null, null);
     }
 
     private static byte[] EmitImage(Compilation compilation)

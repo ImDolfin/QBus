@@ -30,6 +30,7 @@ namespace QueuedEventBus.Tests
             RunCorrectnessTests();
             RunAllocationTests();
             MetadataTests.Run(Run);
+            ImmediateTests.Run(Run);
 
             Console.WriteLine($"RESULT {_passed} passed, {_failed} failed");
             GC.KeepAlive(_allocationSink);

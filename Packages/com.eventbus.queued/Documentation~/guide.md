@@ -2,7 +2,7 @@
 
 ## Choose an owner
 
-`Events` is a static facade over one automatically owned Unity bus. It is ready before scene `Awake`, delivers immediately after `Update.ScriptRunBehaviourUpdate`, and shuts down when Play mode or the application exits. Each Play session gets a new bus even with domain reload disabled. Generated immutable routing metadata can remain registered between sessions.
+`Events` is a static facade over one automatically owned Unity bus. It is ready before scene `Awake`, pumps queued events immediately after `Update.ScriptRunBehaviourUpdate`, and shuts down when Play mode or the application exits. `RaiseImmediate` delivers synchronously on the calling main thread. Each Play session gets a new bus even with domain reload disabled. Generated immutable routing metadata can remain registered between sessions.
 
 Access before initialization or after teardown throws `InvalidOperationException` before changing bus state. Do not subscribe from static field initializers, editor callbacks, or early runtime initialization callbacks. For EditMode tooling, use an owned bus:
 
@@ -23,6 +23,7 @@ An owned bus has no PlayerLoop registration. Its owner controls its lifetime and
 | Operation | Meaning |
 | --- | --- |
 | `Raise<T>(in T message)` | Capture publication metadata and enqueue one concrete event. |
+| `RaiseImmediate<T>(in T message)` | Capture publication metadata and synchronously deliver one concrete event without touching queued events. |
 | `Subscribe<T>(EventCallback<T> callback)` | Register an exact-type callback with an `in T` parameter. |
 | `Subscribe<T>(EventCallbackWithContext<T> callback)` | Register an exact-type callback with `in T` and `in EventContext` parameters. |
 | `Subscribe<TBase>(IEventHandler<TBase> handler)` | Register a category handler with generic `Handle<T>(in T)` where `T : TBase`. |
@@ -38,11 +39,11 @@ Payload types and category types implement `IEvent`. The bus supports class and 
 
 ## Publication context
 
-The bus captures an immutable `EventContext` during every accepted raise and stores it alongside that publication's payload. Events continue to implement `IEvent`; they need no metadata properties or class inheritance. Metadata is available to late subscribers because it is captured at publication time while subscribers are selected at delivery time. All matching context-aware callbacks receive the same values for a publication, including exact and category callbacks from different assemblies.
+The bus captures an immutable `EventContext` during every accepted `Raise` or `RaiseImmediate` and keeps it alongside that publication's payload. Events continue to implement `IEvent`; they need no metadata properties or class inheritance. Queued metadata is available to late subscribers because it is captured at publication time while subscribers are selected at delivery time. All matching context-aware callbacks receive the same values for a publication, including exact and category callbacks from different assemblies.
 
 | Member | Meaning |
 | --- | --- |
-| `long RaisedTimestamp` | The raw `Stopwatch.GetTimestamp()` reading captured during `Raise`. |
+| `long RaisedTimestamp` | The raw `Stopwatch.GetTimestamp()` reading captured during `Raise` or `RaiseImmediate`. |
 | `long Sequence` | The accepted publication's increasing identity within this bus, starting at one. |
 | `static long TimestampFrequency` | Timestamp clock ticks per second, equal to `Stopwatch.Frequency`. |
 
@@ -77,9 +78,9 @@ public sealed class CombatAudit : IEventHandlerWithContext<ICombatEvent>
 
 Subscribe with `Events.Subscribe<ICombatEvent>(new CombatAudit())` and dispose the token when its owner stops listening. Existing `EventCallback<T>` and `IEventHandler<TBase>` remain valid. Payload-only and context-aware subscriptions can coexist and participate in the same subscription-order and snapshot rules. If a handler implements both interfaces for the same category, cast it to the desired interface at the subscription call to select the overload.
 
-Timestamps have an arbitrary clock origin. They are not UTC dates, `DateTime` ticks, or Unity's scaled game time. A timestamp difference is meaningful within the platform clock's lifetime; do not persist these readings as dates or compare them between machines. Use floating-point conversion after subtraction to avoid integer truncation. The captured timestamp marks acceptance during `Raise`; elapsed time observed in a callback also includes time spent delivering earlier callbacks.
+Timestamps have an arbitrary clock origin. They are not UTC dates, `DateTime` ticks, or Unity's scaled game time. A timestamp difference is meaningful within the platform clock's lifetime; do not persist these readings as dates or compare them between machines. Use floating-point conversion after subtraction to avoid integer truncation. The captured timestamp marks acceptance during publication; elapsed time observed in a callback also includes time spent delivering earlier callbacks.
 
-One bus sequence spans all event types and continues across pumps. Rejected publications do not consume sequence numbers. A new owned bus starts again at one, and the default bus restarts its sequence each Play session, including when domain reload is disabled. Sequences identify publication order, not global delivery order: raising `A`, `B`, `A` can deliver sequences `1`, `3`, `2` because each channel drains its captured FIFO snapshot. Identifiers are not globally unique; the bus throws `OverflowException` rather than wrapping after `long.MaxValue`. A default-initialized `EventContext` has sequence zero and does not represent a publication.
+One bus sequence spans all event types and both delivery modes, and continues across pumps. The sequence is committed before immediate callbacks run, so nested publications receive distinct increasing identifiers. Rejected publications, including excessive immediate nesting, do not consume sequence numbers. A new owned bus starts again at one, and the default bus restarts its sequence each Play session, including when domain reload is disabled. Sequences identify publication order, not callback execution order: queued `A`, `B`, `A` can deliver sequences `1`, `3`, `2`, and an immediate event can overtake all three. Identifiers are not globally unique; the bus throws `OverflowException` rather than wrapping after `long.MaxValue`. A default-initialized `EventContext` has sequence zero and does not represent a publication.
 
 Each raise of a reused class object has a separate context. Metadata never mutates the class payload, so a second raise cannot overwrite the first publication's timestamp or sequence. The payload itself remains caller-owned and shared by reference. Contexts contain no object references and can be copied for later diagnostics. UTC, Unity frame counts, correlation IDs, and causation IDs are not populated automatically; add application-specific values to the event payload when needed.
 
@@ -87,11 +88,36 @@ Each raise of a reused class object has a separate context. Metadata never mutat
 
 Each concrete type has one retained ring buffer, initially sized for 16 payloads and doubled when full. Base classes and interfaces are subscription groups over concrete queues, not extra payload queues. A channel activates on its first queued event; activated channels run in activation order. FIFO is guaranteed per channel, not across channels.
 
-Every pump captures the pending count of every currently active channel before invoking callbacks. It drains that entire snapshot, without a time or count budget. Events raised by a callback always wait until the next pump, including events targeting a channel that has not yet been visited or a brand-new channel. Large backlogs or slow callbacks can extend a frame. Recursive `Pump()` and disposal of a bus during its dispatch are rejected.
+Every pump captures the pending count of every currently active channel before invoking callbacks. It drains that entire snapshot, without a time or count budget. Callback calls to `Raise` always wait until the next pump, including events targeting a channel that has not yet been visited or a brand-new channel. Large backlogs or slow callbacks can extend a frame. `Pump()` and disposal of a bus during queued or immediate dispatch are rejected.
 
 Subscriptions are selected when each event is delivered. Subscribing after an event is raised but before delivery receives it. Callbacks for an event run in subscription order across exact and category subscriptions. The callback list is captured once per event: subscribe/unsubscribe during a callback affects subsequent events, while callbacks already captured for the current event still run. The bus does not collapse separately registered subscriptions for the same handler.
 
 Each listener exception is reported independently and later listeners still run. A failing exception reporter is contained too. Exception handling is outside the warmed allocation contract. Publication, subscriptions, pumping, and disposal use the bus's owning thread; concurrent producer queues and Unity Jobs/Burst integration are outside version one.
+
+## Immediate delivery
+
+Use `Events.RaiseImmediate(in message)` or `bus.RaiseImmediate(in message)` when subscribers must finish before the publisher continues. It uses the same exact and category subscriptions, generated routes, metadata, concrete-type validation, exception reporting, and owner-thread checks as queued publication. It does not enqueue, flush pending events, or change the pump's captured counts. `Pump()` returns only the number of queued events it dequeues; nested immediate publications are excluded.
+
+```csharp
+Events.Raise(new DamageEvent(10));
+Events.RaiseImmediate(new DamageEvent(20));
+// The 20-damage notification has finished. The 10-damage notification is still queued.
+```
+
+Immediate delivery is synchronous and can overtake queued events of the same type. FIFO applies among queued events only. When a callback publishes another immediate event, nested delivery runs to completion before the callback resumes. For listeners A and B, if A immediately raises event 2 while handling event 1, the order is:
+
+1. A begins event 1.
+2. A handles event 2, then B handles event 2.
+3. A resumes and finishes event 1.
+4. B handles event 1.
+
+This assumes A does not raise another event while handling event 2. The outer event retains its captured subscriber list. If A adds or removes subscriptions before raising event 2, the nested event uses the updated list while event 1 finishes the original list. Ordinary `Raise` from any of these callbacks remains queued for the next pump, even when immediate dispatch is nested inside a queued pump.
+
+At most **64 immediate publications** may be active simultaneously on one bus; a surrounding queued pump does not count toward this limit. A further `RaiseImmediate` throws `InvalidOperationException` before accepting the publication or consuming a sequence. If a listener lets that exception escape, the normal listener exception reporter receives it and remaining listeners continue. Depth state is restored as calls unwind. This bound catches cycles on a single bus; it is not a time budget or a cross-bus cycle detector.
+
+The bus snapshots the incoming `in` argument into one typed local before invoking callbacks. Reassigning the caller's variable during a callback therefore cannot replace the value or object reference seen by later listeners. Class objects and referenced fields are still shared, with no deep cloning; keep them stable throughout delivery. Immediate events are not retained for later delivery.
+
+`Pump()` and bus disposal are rejected throughout immediate delivery. Unity teardown requested by a listener is deferred until the outermost dispatch finishes. Access to the default facade is rejected once teardown is requested; already captured listeners still finish. The first use can allocate channel and routing storage. For immediate-only use, `Prewarm<T>(0)` prepares it in advance, including the retained minimum queue storage. Warmed immediate delivery has the same no-bus-allocation guarantee and exclusions as queued delivery.
 
 ## Generated routing
 

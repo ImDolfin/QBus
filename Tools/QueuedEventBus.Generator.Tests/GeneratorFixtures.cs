@@ -55,6 +55,13 @@ internal static class GeneratorFixtures
                 {
                 }
 
+                /// <summary>Delivers a concrete event synchronously.</summary>
+                /// <typeparam name="T">The concrete event type.</typeparam>
+                /// <param name="message">The event to deliver.</param>
+                public void RaiseImmediate<T>(in T message) where T : IEvent
+                {
+                }
+
                 /// <summary>Reserves queue capacity.</summary>
                 /// <typeparam name="T">The concrete event type.</typeparam>
                 /// <param name="capacity">The desired capacity.</param>
@@ -98,6 +105,13 @@ internal static class GeneratorFixtures
                 /// <typeparam name="T">The concrete event type.</typeparam>
                 /// <param name="message">The event to enqueue.</param>
                 public static void Raise<T>(in T message) where T : IEvent
+                {
+                }
+
+                /// <summary>Delivers a concrete event synchronously.</summary>
+                /// <typeparam name="T">The concrete event type.</typeparam>
+                /// <param name="message">The event to deliver.</param>
+                public static void RaiseImmediate<T>(in T message) where T : IEvent
                 {
                 }
 
@@ -418,6 +432,8 @@ internal static class GeneratorFixtures
                 bus.Subscribe<QueuedEventBus.IEvent>(this);
                 QueuedEventBus.Events.Subscribe<QueuedEventBus.IEvent>(this);
                 bus.Raise(new Damage());
+                bus.RaiseImmediate(new Damage());
+                QueuedEventBus.Events.RaiseImmediate(new Damage());
                 bus.Prewarm<Damage>(8);
                 bus.Subscribe<Damage>(Receive);
             }
@@ -429,6 +445,8 @@ internal static class GeneratorFixtures
             public void Forward<T>(QueuedEventBus.EventBus bus, in T message) where T : QueuedEventBus.IEvent
             {
                 bus.Raise(in message);
+                bus.RaiseImmediate(in message);
+                QueuedEventBus.Events.RaiseImmediate(in message);
             }
         }
         """;

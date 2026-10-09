@@ -57,6 +57,8 @@ internal static class MetadataFixtures
                 QueuedEventBus.Events.Subscribe<QueuedEventBus.IEvent>(handler);
                 bus.Subscribe<Damage>(Receive);
                 QueuedEventBus.Events.Subscribe<Damage>(Receive);
+                bus.RaiseImmediate(new Damage());
+                QueuedEventBus.Events.RaiseImmediate(new Damage());
             }
 
             /// <summary>Forwards a typed exact context callback without erasing the event type.</summary>

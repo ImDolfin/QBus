@@ -6,16 +6,19 @@ using System.Threading;
 namespace QueuedEventBus
 {
     /// <summary>
-    /// Queues strongly typed events for explicit delivery on the thread that constructs the bus.
+    /// Publishes strongly typed events through queued or immediate delivery on its owning thread.
     /// </summary>
     /// <remarks>
     /// Each concrete type has a FIFO queue. A pump captures every pending queue count before
-    /// invoking callbacks; callback publications wait for the next pump. Ordering is guaranteed
+    /// invoking callbacks; callback calls to Raise wait for the next pump. RaiseImmediate invokes
+    /// listeners synchronously and can overtake queued events. FIFO applies to queued events
     /// within a channel, not globally. Warmed publication and delivery allocate no bus memory.
     /// Initialization, growth, subscription changes, and exception reporting can allocate.
     /// </remarks>
     public sealed class EventBus : IDisposable
     {
+        private const int MaximumImmediateDepth = 64;
+
         private readonly struct ScheduledChannel
         {
             internal readonly ChannelBase Channel;
@@ -41,6 +44,7 @@ namespace QueuedEventBus
         private List<ScheduledChannel> _work = new List<ScheduledChannel>(16);
         private long _nextSubscription;
         private long _nextSequence;
+        private int _immediateDepth;
         private bool _pumping;
         private bool _disposed;
         private Action<Exception> _exceptionReporter;
@@ -94,7 +98,7 @@ namespace QueuedEventBus
         /// <param name="message">The payload to copy into its typed queue.</param>
         /// <remarks>
         /// Structs are copied; class payloads retain the original object. Keep referenced data stable
-        /// until delivery. Events raised during dispatch always wait for the next pump.
+        /// until delivery. Calls to this method during dispatch always wait for the next pump.
         /// Each accepted publication receives an independent timestamp and per-bus sequence in
         /// its <see cref="EventContext"/>, even when the same payload is raised more than once.
         /// </remarks>
@@ -121,6 +125,74 @@ namespace QueuedEventBus
             channel.Enqueue(in message, in context);
             Schedule(channel);
             _nextSequence = sequence;
+        }
+
+        /// <summary>
+        /// Delivers one concrete event synchronously to its current matching subscribers.
+        /// </summary>
+        /// <typeparam name="T">The exact concrete event type with generated routing metadata.</typeparam>
+        /// <param name="message">The payload to snapshot before invoking listeners.</param>
+        /// <remarks>
+        /// <para>
+        /// All captured listeners run in registration order before this call returns. The event
+        /// receives its own timestamp and a sequence shared with queued publications. Existing
+        /// queues are untouched, so immediate events can overtake queued events of the same type.
+        /// Subscriber changes affect the next publication delivered, including a nested immediate
+        /// publication; the current event finishes its captured list. Listener failures are reported
+        /// individually and do not prevent later listeners from running.
+        /// </para>
+        /// <para>
+        /// Calls from queued or immediate listeners are supported. Nested immediate delivery finishes
+        /// before the invoking listener resumes, with at most 64 immediate calls active on this bus.
+        /// Further nesting is rejected before accepting a publication. Calls to Raise still enqueue
+        /// for a subsequent pump. Pumping and disposing this bus during immediate delivery are rejected.
+        /// </para>
+        /// <para>
+        /// The payload is copied once into a typed local; class objects and referenced data are not
+        /// cloned and must remain stable during delivery. Warmed delivery allocates no bus memory;
+        /// channel initialization, subscription changes, reporting, and application code can allocate.
+        /// </para>
+        /// </remarks>
+        /// <exception cref="ArgumentNullException">A class payload is null.</exception>
+        /// <exception cref="ArgumentException">The payload's runtime type differs from <typeparamref name="T"/>.</exception>
+        /// <exception cref="ObjectDisposedException">The bus has been disposed.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// The caller is not the owning thread, generated metadata is unavailable, or 64 immediate
+        /// publications are already active on this bus.
+        /// </exception>
+        /// <exception cref="OverflowException">The bus has exhausted its publication sequence.</exception>
+        public void RaiseImmediate<T>(in T message) where T : IEvent
+        {
+            CheckAccess();
+
+            if (_immediateDepth == MaximumImmediateDepth)
+            {
+                throw new InvalidOperationException("Immediate event nesting cannot exceed 64 active publications per bus.");
+            }
+
+            var descriptor = EventMetadata<T>.Require();
+            descriptor.Validate(in message);
+
+            long sequence = checked(_nextSequence + 1);
+            var channel = GetOrCreateChannel(descriptor);
+
+            // The caller's in argument can alias a field or variable changed by a listener.
+            // Snapshot once so every listener receives the same value or object reference.
+            T snapshot = message;
+            var context = new EventContext(Stopwatch.GetTimestamp(), sequence);
+
+            // Commit before invoking user code: nested publications must get distinct IDs.
+            _nextSequence = sequence;
+            _immediateDepth++;
+
+            try
+            {
+                channel.Deliver(this, in snapshot, in context);
+            }
+            finally
+            {
+                _immediateDepth--;
+            }
         }
 
         /// <summary>
@@ -285,18 +357,19 @@ namespace QueuedEventBus
         /// <remarks>
         /// All active counts are captured before callbacks run. Channels drain in activation order,
         /// without a time or event budget. Listener exceptions are reported and delivery continues.
+        /// Nested immediate publications do not contribute to the returned dequeue count.
         /// </remarks>
         /// <exception cref="ObjectDisposedException">The bus has been disposed.</exception>
         /// <exception cref="InvalidOperationException">
-        /// The caller is not the owning thread, or this bus is already being pumped.
+        /// The caller is not the owning thread, or this bus is already dispatching events.
         /// </exception>
         public int Pump()
         {
             CheckAccess();
 
-            if (_pumping)
+            if (_pumping || _immediateDepth != 0)
             {
-                throw new InvalidOperationException("Recursive pumping is not supported.");
+                throw new InvalidOperationException("Pumping during event dispatch is not supported.");
             }
 
             BeginPump();
@@ -320,7 +393,7 @@ namespace QueuedEventBus
         /// operations reject a disposed bus. Disposal during dispatch is not permitted.
         /// </remarks>
         /// <exception cref="InvalidOperationException">
-        /// The active bus is accessed from another thread, or a pump is in progress.
+        /// The active bus is accessed from another thread, or event dispatch is in progress.
         /// </exception>
         public void Dispose()
         {
@@ -331,7 +404,7 @@ namespace QueuedEventBus
 
             CheckAccess();
 
-            if (_pumping)
+            if (_pumping || _immediateDepth != 0)
             {
                 throw new InvalidOperationException("Cannot dispose a bus during dispatch.");
             }
@@ -566,7 +639,8 @@ namespace QueuedEventBus
 #endif
         }
 
-        private void CheckAccess()
+        // The Unity facade checks ownership before changing its own dispatch/teardown state.
+        internal void CheckAccess()
         {
             if (_disposed)
             {

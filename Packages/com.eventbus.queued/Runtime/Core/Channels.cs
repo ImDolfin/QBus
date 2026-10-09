@@ -145,7 +145,9 @@ namespace QueuedEventBus
             _count--;
         }
 
-        private void Deliver(EventBus bus, in T message, in EventContext context)
+        // Both publication modes use this typed path. Immediate delivery never changes queue
+        // counts or scheduler state, even when invoked while this channel is being drained.
+        internal void Deliver(EventBus bus, in T message, in EventContext context)
         {
             // Subscription changes replace the array. Capture once per event so its callbacks finish
             // consistently, while the next event observes any changes made during this delivery.

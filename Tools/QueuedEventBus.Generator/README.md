@@ -18,7 +18,7 @@ Diagnostics:
 | ID | Meaning | Action |
 | --- | --- | --- |
 | QEB001 | Unsupported concrete event declaration | Make the event and containing types public/internal and non-generic; use a regular struct or class instead of a ref struct. |
-| QEB002 | Abstract/interface publication, prewarming, or exact subscription | Use a concrete event type, or use `IEventHandler<TCategory>` for a category subscription. |
-| QEB003 | Statically visible derived event published as a base type | Let `Raise` infer the concrete event type or specify it explicitly. |
+| QEB002 | Abstract/interface publication, prewarming, or exact subscription | Use a concrete event type, or use `IEventHandler<TCategory>` / `IEventHandlerWithContext<TCategory>` for a category subscription. |
+| QEB003 | Statically visible derived event published as a base type | Let `Raise` or `RaiseImmediate` infer the concrete event type or specify it explicitly. |
 
-The analyzer cannot prove a runtime object's exact type when a variable already has a concrete base type. Runtime validation rejects that case. Third-party DLLs must have been compiled with the generator to provide their own event metadata.
+The same concrete publication rules apply to `Raise` and `RaiseImmediate` on both `EventBus` and `Events`. Immediate dispatch reuses the generated routes, so events need no additional declarations or registration. The analyzer cannot prove a runtime object's exact type when a variable already has a concrete base type. Runtime validation rejects that case. Third-party DLLs must have been compiled with the generator to provide their own event metadata.

@@ -1,8 +1,8 @@
 # Queued Event Bus for Unity
 
-Define an event, subscribe, and raise it. Queued Event Bus delivers typed notifications after Unity's `Update`, creates queues automatically, and routes events to exact-type and category subscribers without event boxing. The installable Unity 2022.3+ package is in [`Packages/com.eventbus.queued`](Packages/com.eventbus.queued).
+Define an event, subscribe, and raise it. Queued Event Bus delivers typed notifications after Unity's `Update`, or synchronously with `RaiseImmediate`. It creates queues automatically and routes events to exact-type and category subscribers without event boxing. The installable Unity 2022.3+ package is in [`Packages/com.eventbus.queued`](Packages/com.eventbus.queued).
 
-![Queued Event Bus overview: the generator discovers event relationships at compile time; Raise stores a payload and publication context in a concrete typed queue; a pump drains its starting snapshot to exact and category subscribers, while callback-raised events wait for the next pump.](Packages/com.eventbus.queued/Documentation~/images/eventbus-overview.svg)
+![Queued Event Bus overview: generated routes connect concrete events to exact and category subscribers. Raise queues a payload and context for the next pump; RaiseImmediate invokes the same subscribers synchronously. Handler calls to Raise wait for the next pump.](Packages/com.eventbus.queued/Documentation~/images/eventbus-overview.svg)
 
 ## From declaration to delivery
 
@@ -11,14 +11,22 @@ Define an event, subscribe, and raise it. Queued Event Bus delivers typed notifi
 | **Compile** | The bundled generator discovers events implementing `IEvent` and emits typed routes to their concrete type, event base classes, and interfaces. No attributes or manual registration are needed. |
 | **Subscribe** | Register an exact callback or a generic category handler. Categories group subscriptions over concrete queues; they do not hold separate copies of events. |
 | **Raise** | The bus captures the payload and an immutable `EventContext`, then enqueues them in that event type's lazily created queue. |
+| **RaiseImmediate** | Capture the payload and context, then invoke the same matching subscribers before returning. Pending queues remain untouched. |
 | **Pump** | After `Update`, the default bus captures the pending counts of **all active queues before any callback runs**, then drains those counts in channel activation order. |
-| **Deliver** | Each event captures its current matching callbacks in one registration-order list, combining exact and category subscriptions. Events raised by a callback wait for the next pump. |
+| **Deliver** | Each event captures its current matching callbacks in one registration-order list, combining exact and category subscriptions. A callback's `Raise` waits for the next pump; `RaiseImmediate` runs synchronously. |
 
 For example, with initially empty queues, raising `Damage #1`, `Heal #2`, then `Damage #3` delivers **`Damage #1` → `Damage #3` → `Heal #2`**. FIFO is preserved within each concrete event type; there is no global delivery order. The numbers represent publication sequences, not delivery positions.
 
 Subscriptions are selected at delivery time. A listener added after `Raise` but before delivery can receive the event. Changes during a callback affect the next event, even within the same pump; the current event finishes its captured callback list.
 
-Every raise captures an immutable `EventContext` containing a raise-time timestamp and a per-bus publication sequence. Keep simple payload-only subscriptions or opt into metadata with a two-parameter callback or `IEventHandlerWithContext<TBase>`. Events still implement `IEvent`, including immutable structs; no base class or mutable metadata fields are required.
+Every queued or immediate raise captures an immutable `EventContext` containing a raise-time timestamp and a shared per-bus publication sequence. Keep simple payload-only subscriptions or opt into metadata with a two-parameter callback or `IEventHandlerWithContext<TBase>`. Events still implement `IEvent`, including immutable structs; no base class or mutable metadata fields are required.
+
+```csharp
+Events.Raise(new DamageEvent(10));          // Deliver at the next automatic pump.
+Events.RaiseImmediate(new DamageEvent(20)); // Deliver before this call returns.
+```
+
+Immediate delivery can overtake queued events, including those of the same type. Nested immediate calls finish before the invoking handler resumes, up to 64 active immediate publications per bus. `Pump()` and bus disposal are rejected during either kind of dispatch. The same APIs are available on an owned `EventBus`; see [immediate delivery](Packages/com.eventbus.queued/Documentation~/guide.md#immediate-delivery) for ordering and callback rules.
 
 Use the automatically managed `Events` facade from scene `Awake` onward. For an independently owned bus, create `new EventBus()`, call `Pump()` explicitly, and dispose it during teardown. All operations run on the bus's owning thread.
 
